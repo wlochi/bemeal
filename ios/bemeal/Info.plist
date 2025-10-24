@@ -37,6 +37,8 @@
 	<string>BeMeal needs access to your photo library to select photos of your meals.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>BeMeal needs to send you notifications to remind you to capture your meals.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

@@ -5,7 +5,7 @@
  * @format
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SafeAreaView,
   StatusBar,
@@ -22,6 +22,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  AppState,
 } from 'react-native';
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import { useMutation, useQuery } from 'convex/react';
@@ -29,6 +30,7 @@ import { api } from './convex/_generated/api';
 import Config from 'react-native-config';
 import { launchCamera, type ImagePickerResponse } from 'react-native-image-picker';
 import type { Id } from './convex/_generated/dataModel';
+import notifee, { AndroidImportance, TriggerType, TimestampTrigger, EventType } from '@notifee/react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -57,6 +59,69 @@ const formatTimestamp = (timestamp: number): string => {
   }
 };
 
+// Request notification permissions
+async function requestNotificationPermission() {
+  const settings = await notifee.requestPermission();
+  console.log('Notification permission:', settings);
+  return settings.authorizationStatus >= 1; // 1 = authorized
+}
+
+// Create notification channel for Android
+async function createNotificationChannel() {
+  await notifee.createChannel({
+    id: 'meal-reminder',
+    name: 'Meal Reminders',
+    importance: AndroidImportance.HIGH,
+    sound: 'default',
+  });
+}
+
+// Schedule a meal reminder notification
+async function scheduleMealNotification() {
+  try {
+    // Request permission first
+    const hasPermission = await requestNotificationPermission();
+    if (!hasPermission) {
+      Alert.alert('Permission Required', 'Please enable notifications to receive meal reminders.');
+      return;
+    }
+
+    // Create channel for Android
+    await createNotificationChannel();
+
+    // Schedule notification for 1 minute from now (for testing)
+    const trigger: TimestampTrigger = {
+      type: TriggerType.TIMESTAMP,
+      timestamp: Date.now() + 60 * 1000, // 1 minute from now
+    };
+
+    await notifee.createTriggerNotification(
+      {
+        title: '📸 Time to BeMeal!',
+        body: 'Capture your meal and share it with your friends!',
+        android: {
+          channelId: 'meal-reminder',
+          importance: AndroidImportance.HIGH,
+          pressAction: {
+            id: 'default',
+          },
+        },
+        ios: {
+          sound: 'default',
+          categoryId: 'meal-reminder',
+        },
+      },
+      trigger
+    );
+
+    console.log('Meal notification scheduled for 1 minute from now');
+    Alert.alert('Reminder Set!', 'You\'ll receive a notification in 1 minute to take a meal photo.');
+  } catch (error) {
+    console.error('Error scheduling notification:', error);
+    Alert.alert('Error', 'Failed to schedule notification.');
+  }
+}
+
 function SignInScreen() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -65,9 +130,156 @@ function SignInScreen() {
   const [captionModalVisible, setCaptionModalVisible] = useState(false);
   const [caption, setCaption] = useState('');
   const [pendingPhoto, setPendingPhoto] = useState<{uri: string, fileName: string, fileSize?: number, mimeType?: string} | null>(null);
+
+  // Notification and grace period state
+  const [notificationTime, setNotificationTime] = useState<number | null>(null);
+  const [isInGracePeriod, setIsInGracePeriod] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [hasPostedInCurrentWindow, setHasPostedInCurrentWindow] = useState(false);
+
+  // Use ref to track userId so notification handlers always have access to latest value
+  const userIdRef = useRef<Id<"users"> | null>(null);
+
+  const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+
   const upsertUser = useMutation(api.users.upsertUser);
   const savePhoto = useMutation(api.photos.savePhoto);
   const photos = useQuery(api.photos.getAllPhotos);
+
+  // Update ref whenever userId changes
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+
+  // Check grace period and update timer
+  useEffect(() => {
+    // If user has posted, stop the timer
+    if (hasPostedInCurrentWindow) {
+      setIsInGracePeriod(false);
+      setTimeRemaining(0);
+      return;
+    }
+
+    if (!notificationTime) {
+      setIsInGracePeriod(false);
+      setTimeRemaining(0);
+      return;
+    }
+
+    const checkGracePeriod = () => {
+      const now = Date.now();
+      const elapsed = now - notificationTime;
+      const remaining = GRACE_PERIOD_MS - elapsed;
+
+      if (remaining > 0) {
+        setIsInGracePeriod(true);
+        setTimeRemaining(Math.ceil(remaining / 1000)); // Convert to seconds
+      } else {
+        setIsInGracePeriod(false);
+        setTimeRemaining(0);
+        setNotificationTime(null); // Clear notification time when grace period expires
+      }
+    };
+
+    // Check immediately
+    checkGracePeriod();
+
+    // Update every second
+    const interval = setInterval(checkGracePeriod, 1000);
+
+    return () => clearInterval(interval);
+  }, [notificationTime, GRACE_PERIOD_MS, hasPostedInCurrentWindow]);
+
+  // Set up notification handlers
+  useEffect(() => {
+    // Handle notification press (when user taps the notification)
+    const unsubscribe = notifee.onForegroundEvent(async ({ type, detail }) => {
+      // When notification is delivered, start the grace period
+      if (type === EventType.DELIVERED) {
+        console.log('Notification delivered, starting grace period');
+        setNotificationTime(Date.now());
+        setHasPostedInCurrentWindow(false); // Reset posted state for new window
+      }
+
+      if (type === EventType.PRESS) {
+        console.log('Notification pressed, opening camera');
+        console.log('Current userId:', userIdRef.current);
+
+        // Set notification time if not already set (in case user taps before DELIVERED event)
+        if (!notificationTime) {
+          setNotificationTime(Date.now());
+          setHasPostedInCurrentWindow(false); // Reset posted state for new window
+        }
+
+        if (!userIdRef.current) {
+          console.error('No userId available when notification was pressed');
+          Alert.alert('Error', 'Please sign in first');
+          return;
+        }
+
+        // Open camera
+        try {
+          const result: ImagePickerResponse = await launchCamera({
+            mediaType: 'photo',
+            cameraType: 'back',
+            saveToPhotos: false,
+          });
+
+          if (result.didCancel) {
+            console.log('User cancelled camera');
+            return;
+          }
+
+          if (result.errorCode) {
+            Alert.alert('Error', result.errorMessage || 'Failed to take photo');
+            return;
+          }
+
+          if (result.assets && result.assets.length > 0) {
+            const asset = result.assets[0];
+
+            console.log('Photo asset from notification:', {
+              uri: asset.uri,
+              fileName: asset.fileName,
+              fileSize: asset.fileSize,
+              type: asset.type,
+            });
+
+            // Store photo temporarily and show caption modal
+            setPendingPhoto({
+              uri: asset.uri || '',
+              fileName: asset.fileName || 'photo.jpg',
+              fileSize: asset.fileSize,
+              mimeType: asset.type,
+            });
+            setCaptionModalVisible(true);
+          }
+        } catch (error) {
+          console.error('Error taking photo from notification:', error);
+          Alert.alert('Error', 'Failed to take photo. Please try again.');
+        }
+      }
+    });
+
+    // Handle background notification press
+    notifee.onBackgroundEvent(async ({ type, detail }) => {
+      if (type === EventType.PRESS) {
+        console.log('Background notification pressed');
+        // The app will open and the foreground handler will take over
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Schedule notification when user signs in
+  useEffect(() => {
+    if (isSignedIn) {
+      scheduleMealNotification();
+    }
+  }, [isSignedIn]);
 
   const handleSignIn = async () => {
     if (!email.trim() || !name.trim()) {
@@ -86,6 +298,26 @@ function SignInScreen() {
   };
 
   const handleTakePhoto = async () => {
+    // Check if user has already posted in this window
+    if (hasPostedInCurrentWindow) {
+      Alert.alert(
+        'Already Posted!',
+        'You\'ve already posted during this BeMeal time. Wait for the next notification!',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Check if we're in the grace period
+    if (!isInGracePeriod) {
+      Alert.alert(
+        'Not Time Yet!',
+        'You can only take photos when you receive a BeMeal notification. Wait for your next reminder!',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     try {
       const result: ImagePickerResponse = await launchCamera({
         mediaType: 'photo',
@@ -129,11 +361,23 @@ function SignInScreen() {
   };
 
   const handleSavePhotoWithCaption = async () => {
-    if (!pendingPhoto || !userId) return;
+    const currentUserId = userIdRef.current || userId;
+
+    if (!pendingPhoto || !currentUserId) {
+      console.error('Missing pendingPhoto or userId:', { pendingPhoto, currentUserId });
+      Alert.alert('Error', 'Unable to save photo. Please try again.');
+      return;
+    }
 
     try {
+      console.log('Saving photo with caption:', {
+        userId: currentUserId,
+        imageUri: pendingPhoto.uri,
+        caption: caption.trim() || '(no caption)',
+      });
+
       await savePhoto({
-        userId: userId,
+        userId: currentUserId,
         imageUri: pendingPhoto.uri,
         fileName: pendingPhoto.fileName,
         fileSize: pendingPhoto.fileSize,
@@ -141,11 +385,17 @@ function SignInScreen() {
         caption: caption.trim() || undefined,
       });
 
+      // Mark as posted and end the grace period
+      setHasPostedInCurrentWindow(true);
+      setIsInGracePeriod(false);
+      setTimeRemaining(0);
+      setNotificationTime(null);
+
       // Reset state
       setCaptionModalVisible(false);
       setCaption('');
       setPendingPhoto(null);
-      Alert.alert('Success', 'Photo saved successfully!');
+      Alert.alert('Success', 'Photo saved successfully! See you at the next BeMeal time.');
     } catch (error) {
       console.error('Error saving photo:', error);
       Alert.alert('Error', 'Failed to save photo. Please try again.');
@@ -158,15 +408,48 @@ function SignInScreen() {
     setPendingPhoto(null);
   };
 
+  // Format time remaining as MM:SS
+  const formatTimeRemaining = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   if (isSignedIn) {
     return (
       <View style={styles.feedContainer}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>BeMeal Feed</Text>
-          <TouchableOpacity style={styles.cameraButton} onPress={handleTakePhoto}>
-            <Text style={styles.cameraButtonText}>📷 Take Photo</Text>
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity style={styles.reminderButton} onPress={scheduleMealNotification}>
+              <Text style={styles.reminderButtonText}>🔔</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.cameraButton,
+                (!isInGracePeriod || hasPostedInCurrentWindow) && styles.cameraButtonDisabled
+              ]}
+              onPress={handleTakePhoto}
+              disabled={!isInGracePeriod || hasPostedInCurrentWindow}
+            >
+              <Text style={[
+                styles.cameraButtonText,
+                (!isInGracePeriod || hasPostedInCurrentWindow) && styles.cameraButtonTextDisabled
+              ]}>
+                📷 {hasPostedInCurrentWindow ? 'Posted!' : 'Take Photo'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Grace period timer banner - only show if in grace period AND haven't posted yet */}
+        {isInGracePeriod && !hasPostedInCurrentWindow && (
+          <View style={styles.timerBanner}>
+            <Text style={styles.timerText}>
+              ⏰ Time to post! {formatTimeRemaining(timeRemaining)} remaining
+            </Text>
+          </View>
+        )}
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {photos && photos.length > 0 ? (
@@ -325,15 +608,48 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
   },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+  reminderButton: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  reminderButtonText: {
+    fontSize: 18,
+  },
   cameraButton: {
     backgroundColor: '#000',
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 20,
   },
+  cameraButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.6,
+  },
   cameraButtonText: {
     color: '#fff',
     fontSize: 14,
+    fontWeight: '600',
+  },
+  cameraButtonTextDisabled: {
+    color: '#888',
+  },
+  timerBanner: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: '600',
   },
   scrollView: {
