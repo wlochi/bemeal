@@ -31,6 +31,29 @@ const { width } = Dimensions.get('window');
 
 const convex = new ConvexReactClient(Config.CONVEX_URL || 'https://content-bat-180.convex.cloud');
 
+// Helper function to format timestamp
+const formatTimestamp = (timestamp: number): string => {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) {
+    return 'Just now';
+  } else if (minutes < 60) {
+    return `${minutes}m ago`;
+  } else if (hours < 24) {
+    return `${hours}h ago`;
+  } else if (days < 7) {
+    return `${days}d ago`;
+  } else {
+    return new Date(timestamp).toLocaleDateString();
+  }
+};
+
 function SignInScreen() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -129,13 +152,12 @@ function SignInScreen() {
                     }}
                   />
                   <View style={styles.photoInfo}>
-                    <Text style={styles.photoFileName}>{photo.fileName}</Text>
-                    <Text style={styles.photoDate}>
-                      {new Date(photo.createdAt).toLocaleString()}
-                    </Text>
-                    <Text style={styles.photoUri} numberOfLines={1}>
-                      {photo.imageUri}
-                    </Text>
+                    <View style={styles.photoHeader}>
+                      <Text style={styles.userName}>{photo.userName}</Text>
+                      <Text style={styles.timestamp}>
+                        {formatTimestamp(photo.createdAt)}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               );
@@ -262,20 +284,19 @@ const styles = StyleSheet.create({
   photoInfo: {
     padding: 15,
   },
-  photoFileName: {
+  photoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  userName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#000',
-    marginBottom: 5,
   },
-  photoDate: {
+  timestamp: {
     fontSize: 14,
-    color: '#666',
-  },
-  photoUri: {
-    fontSize: 12,
     color: '#999',
-    marginTop: 5,
   },
   emptyState: {
     alignItems: 'center',

@@ -36,10 +36,23 @@ export const getUserPhotos = query({
 export const getAllPhotos = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const photos = await ctx.db
       .query("photos")
       .order("desc")
       .collect();
+
+    // Fetch user data for each photo
+    const photosWithUsers = await Promise.all(
+      photos.map(async (photo) => {
+        const user = await ctx.db.get(photo.userId);
+        return {
+          ...photo,
+          userName: user?.name || 'Unknown User',
+        };
+      })
+    );
+
+    return photosWithUsers;
   },
 });
 
