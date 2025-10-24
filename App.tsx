@@ -16,13 +16,18 @@ import {
   View,
   useColorScheme,
   Alert,
+  ScrollView,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from './convex/_generated/api';
 import Config from 'react-native-config';
 import { launchCamera, type ImagePickerResponse } from 'react-native-image-picker';
 import type { Id } from './convex/_generated/dataModel';
+
+const { width } = Dimensions.get('window');
 
 const convex = new ConvexReactClient(Config.CONVEX_URL || 'https://content-bat-180.convex.cloud');
 
@@ -33,6 +38,7 @@ function SignInScreen() {
   const [userId, setUserId] = useState<Id<"users"> | null>(null);
   const upsertUser = useMutation(api.users.upsertUser);
   const savePhoto = useMutation(api.photos.savePhoto);
+  const photos = useQuery(api.photos.getAllPhotos);
 
   const handleSignIn = async () => {
     if (!email.trim() || !name.trim()) {
@@ -71,6 +77,13 @@ function SignInScreen() {
       if (result.assets && result.assets.length > 0 && userId) {
         const asset = result.assets[0];
 
+        console.log('Photo asset:', {
+          uri: asset.uri,
+          fileName: asset.fileName,
+          fileSize: asset.fileSize,
+          type: asset.type,
+        });
+
         // Save photo to database
         await savePhoto({
           userId: userId,
@@ -90,13 +103,52 @@ function SignInScreen() {
 
   if (isSignedIn) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.welcomeText}>Welcome to BeMeal!</Text>
-        <Text style={styles.subtitle}>Share your meals with friends</Text>
+      <View style={styles.feedContainer}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>BeMeal Feed</Text>
+          <TouchableOpacity style={styles.cameraButton} onPress={handleTakePhoto}>
+            <Text style={styles.cameraButtonText}>📷 Take Photo</Text>
+          </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity style={styles.button} onPress={handleTakePhoto}>
-          <Text style={styles.buttonText}>Take Photo</Text>
-        </TouchableOpacity>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          {photos && photos.length > 0 ? (
+            photos.map((photo) => {
+              console.log('Rendering photo:', photo.imageUri);
+              return (
+                <View key={photo._id} style={styles.photoCard}>
+                  <Image
+                    source={{ uri: photo.imageUri }}
+                    style={styles.photoImage}
+                    resizeMode="cover"
+                    onError={(error) => {
+                      console.error('Image load error:', error.nativeEvent.error);
+                    }}
+                    onLoad={() => {
+                      console.log('Image loaded successfully:', photo.imageUri);
+                    }}
+                  />
+                  <View style={styles.photoInfo}>
+                    <Text style={styles.photoFileName}>{photo.fileName}</Text>
+                    <Text style={styles.photoDate}>
+                      {new Date(photo.createdAt).toLocaleString()}
+                    </Text>
+                    <Text style={styles.photoUri} numberOfLines={1}>
+                      {photo.imageUri}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No photos yet!</Text>
+              <Text style={styles.emptyStateSubtext}>
+                Tap the camera button to take your first meal photo
+              </Text>
+            </View>
+          )}
+        </ScrollView>
       </View>
     );
   }
@@ -155,6 +207,93 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: '#fff',
   },
+  feedContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  header: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  cameraButton: {
+    backgroundColor: '#000',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  cameraButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 15,
+  },
+  photoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 15,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  photoImage: {
+    width: '100%',
+    height: width - 30,
+    backgroundColor: '#f0f0f0',
+  },
+  photoInfo: {
+    padding: 15,
+  },
+  photoFileName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 5,
+  },
+  photoDate: {
+    fontSize: 14,
+    color: '#666',
+  },
+  photoUri: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 5,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyStateText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 10,
+  },
+  emptyStateSubtext: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
@@ -166,12 +305,6 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 40,
     textAlign: 'center',
-  },
-  welcomeText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 10,
   },
   input: {
     width: '100%',

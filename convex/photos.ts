@@ -33,3 +33,13 @@ export const getUserPhotos = query({
   },
 });
 
+export const getAllPhotos = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("photos")
+      .order("desc")
+      .collect();
+  },
+});
+
