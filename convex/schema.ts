@@ -8,4 +8,13 @@ export default defineSchema({
     createdAt: v.number(),
     lastSignIn: v.number(),
   }).index("by_email", ["email"]),
+
+  photos: defineTable({
+    userId: v.id("users"),
+    imageUri: v.string(),
+    fileName: v.string(),
+    fileSize: v.optional(v.number()),
+    mimeType: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_user", ["userId"]),
 });

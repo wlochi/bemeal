@@ -31,6 +31,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>BeMeal needs access to your camera to take photos of your meals.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>BeMeal needs access to your photo library to select photos of your meals.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>RCTNewArchEnabled</key>

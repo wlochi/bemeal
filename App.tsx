@@ -21,6 +21,8 @@ import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import { useMutation } from 'convex/react';
 import { api } from './convex/_generated/api';
 import Config from 'react-native-config';
+import { launchCamera, type ImagePickerResponse } from 'react-native-image-picker';
+import type { Id } from './convex/_generated/dataModel';
 
 const convex = new ConvexReactClient(Config.CONVEX_URL || 'https://content-bat-180.convex.cloud');
 
@@ -28,7 +30,9 @@ function SignInScreen() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [userId, setUserId] = useState<Id<"users"> | null>(null);
   const upsertUser = useMutation(api.users.upsertUser);
+  const savePhoto = useMutation(api.photos.savePhoto);
 
   const handleSignIn = async () => {
     if (!email.trim() || !name.trim()) {
@@ -37,11 +41,50 @@ function SignInScreen() {
     }
 
     try {
-      await upsertUser({ email: email.trim(), name: name.trim() });
+      const id = await upsertUser({ email: email.trim(), name: name.trim() });
+      setUserId(id);
       setIsSignedIn(true);
       Alert.alert('Success', 'Welcome to BeMeal!');
     } catch (error) {
       Alert.alert('Error', 'Failed to sign in. Please try again.');
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    try {
+      const result: ImagePickerResponse = await launchCamera({
+        mediaType: 'photo',
+        cameraType: 'back',
+        saveToPhotos: false,
+      });
+
+      if (result.didCancel) {
+        console.log('User cancelled camera');
+        return;
+      }
+
+      if (result.errorCode) {
+        Alert.alert('Error', result.errorMessage || 'Failed to take photo');
+        return;
+      }
+
+      if (result.assets && result.assets.length > 0 && userId) {
+        const asset = result.assets[0];
+
+        // Save photo to database
+        await savePhoto({
+          userId: userId,
+          imageUri: asset.uri || '',
+          fileName: asset.fileName || 'photo.jpg',
+          fileSize: asset.fileSize,
+          mimeType: asset.type,
+        });
+
+        Alert.alert('Success', 'Photo saved successfully!');
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
     }
   };
 
@@ -50,6 +93,10 @@ function SignInScreen() {
       <View style={styles.container}>
         <Text style={styles.welcomeText}>Welcome to BeMeal!</Text>
         <Text style={styles.subtitle}>Share your meals with friends</Text>
+
+        <TouchableOpacity style={styles.button} onPress={handleTakePhoto}>
+          <Text style={styles.buttonText}>Take Photo</Text>
+        </TouchableOpacity>
       </View>
     );
   }
