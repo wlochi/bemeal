@@ -8,6 +8,7 @@ export const savePhoto = mutation({
     fileName: v.string(),
     fileSize: v.optional(v.number()),
     mimeType: v.optional(v.string()),
+    caption: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const photoId = await ctx.db.insert("photos", {
@@ -16,6 +17,7 @@ export const savePhoto = mutation({
       fileName: args.fileName,
       fileSize: args.fileSize,
       mimeType: args.mimeType,
+      caption: args.caption,
       createdAt: Date.now(),
     });
     return photoId;

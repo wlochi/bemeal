@@ -19,6 +19,9 @@ import {
   ScrollView,
   Image,
   Dimensions,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import { useMutation, useQuery } from 'convex/react';
@@ -59,6 +62,9 @@ function SignInScreen() {
   const [name, setName] = useState('');
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [userId, setUserId] = useState<Id<"users"> | null>(null);
+  const [captionModalVisible, setCaptionModalVisible] = useState(false);
+  const [caption, setCaption] = useState('');
+  const [pendingPhoto, setPendingPhoto] = useState<{uri: string, fileName: string, fileSize?: number, mimeType?: string} | null>(null);
   const upsertUser = useMutation(api.users.upsertUser);
   const savePhoto = useMutation(api.photos.savePhoto);
   const photos = useQuery(api.photos.getAllPhotos);
@@ -107,21 +113,49 @@ function SignInScreen() {
           type: asset.type,
         });
 
-        // Save photo to database
-        await savePhoto({
-          userId: userId,
-          imageUri: asset.uri || '',
+        // Store photo temporarily and show caption modal
+        setPendingPhoto({
+          uri: asset.uri || '',
           fileName: asset.fileName || 'photo.jpg',
           fileSize: asset.fileSize,
           mimeType: asset.type,
         });
-
-        Alert.alert('Success', 'Photo saved successfully!');
+        setCaptionModalVisible(true);
       }
     } catch (error) {
       console.error('Error taking photo:', error);
       Alert.alert('Error', 'Failed to take photo. Please try again.');
     }
+  };
+
+  const handleSavePhotoWithCaption = async () => {
+    if (!pendingPhoto || !userId) return;
+
+    try {
+      await savePhoto({
+        userId: userId,
+        imageUri: pendingPhoto.uri,
+        fileName: pendingPhoto.fileName,
+        fileSize: pendingPhoto.fileSize,
+        mimeType: pendingPhoto.mimeType,
+        caption: caption.trim() || undefined,
+      });
+
+      // Reset state
+      setCaptionModalVisible(false);
+      setCaption('');
+      setPendingPhoto(null);
+      Alert.alert('Success', 'Photo saved successfully!');
+    } catch (error) {
+      console.error('Error saving photo:', error);
+      Alert.alert('Error', 'Failed to save photo. Please try again.');
+    }
+  };
+
+  const handleCancelCaption = () => {
+    setCaptionModalVisible(false);
+    setCaption('');
+    setPendingPhoto(null);
   };
 
   if (isSignedIn) {
@@ -158,6 +192,9 @@ function SignInScreen() {
                         {formatTimestamp(photo.createdAt)}
                       </Text>
                     </View>
+                    {photo.caption && (
+                      <Text style={styles.caption}>{photo.caption}</Text>
+                    )}
                   </View>
                 </View>
               );
@@ -171,6 +208,46 @@ function SignInScreen() {
             </View>
           )}
         </ScrollView>
+
+        {/* Caption Modal */}
+        <Modal
+          visible={captionModalVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={handleCancelCaption}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalContainer}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Add a caption</Text>
+              <TextInput
+                style={styles.captionInput}
+                placeholder="What's on your plate?"
+                value={caption}
+                onChangeText={setCaption}
+                multiline
+                maxLength={200}
+                autoFocus
+              />
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={handleCancelCaption}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={handleSavePhotoWithCaption}
+                >
+                  <Text style={styles.saveButtonText}>Post</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
       </View>
     );
   }
@@ -298,6 +375,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
   },
+  caption: {
+    fontSize: 15,
+    color: '#333',
+    marginTop: 10,
+    lineHeight: 20,
+  },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -349,6 +432,61 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 18,
+    fontWeight: '600',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 15,
+  },
+  captionInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#f0f0f0',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  saveButton: {
+    backgroundColor: '#000',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: '600',
   },
 });

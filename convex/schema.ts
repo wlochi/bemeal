@@ -15,6 +15,7 @@ export default defineSchema({
     fileName: v.string(),
     fileSize: v.optional(v.number()),
     mimeType: v.optional(v.string()),
+    caption: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_user", ["userId"]),
 });
