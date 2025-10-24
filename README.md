@@ -1,8 +1,56 @@
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
-# Getting Started
+# Local Development Instructions
 
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+
+## Prerequisites
+- Node.js v20.12.0 or higher
+- nvm (Node Version Manager)
+- For iOS: Xcode and CocoaPods
+- For Android: Android Studio and emulator
+
+## Setup and Run
+
+### Terminal 1: Start Convex Backend
+
+```sh
+npx convex dev
+```
+
+Keep this terminal running.
+
+### Terminal 2: Install Dependencies and Start Metro
+
+```sh
+nvm use 20
+npm i
+cd ios
+bundle exec pod install
+cd ..
+npm start
+```
+
+Keep this terminal running.
+
+### Terminal 3: Run the App
+
+**For iOS:**
+```sh
+cd ios
+npm run ios
+```
+
+**For Android:**
+```sh
+npm run android
+```
+
+---
+
+# Getting Started (Alternative Method)
+
+> **Note**: The instructions above are the recommended way to run the app locally. The following is an alternative approach.
 
 ## Step 1: Start Metro
 
