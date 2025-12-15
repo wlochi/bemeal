@@ -143,6 +143,7 @@ function SignInScreen() {
   const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
 
   const upsertUser = useMutation(api.users.upsertUser);
+  const generateUploadUrl = useMutation(api.photos.generateUploadUrl);
   const savePhoto = useMutation(api.photos.savePhoto);
   const photos = useQuery(api.photos.getAllPhotos);
 
@@ -370,15 +371,37 @@ function SignInScreen() {
     }
 
     try {
-      console.log('Saving photo with caption:', {
+      console.log('Uploading photo to Convex storage:', {
         userId: currentUserId,
-        imageUri: pendingPhoto.uri,
+        fileName: pendingPhoto.fileName,
         caption: caption.trim() || '(no caption)',
       });
 
+      // Step 1: Get a short-lived upload URL from Convex
+      const uploadUrl = await generateUploadUrl();
+
+      // Step 2: Read the file and upload it to the URL
+      const response = await fetch(pendingPhoto.uri);
+      const blob = await response.blob();
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': pendingPhoto.mimeType || 'image/jpeg',
+        },
+        body: blob,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload image to storage');
+      }
+
+      const { storageId } = await uploadResponse.json();
+
+      // Step 3: Save the storage ID to the database
       await savePhoto({
         userId: currentUserId,
-        imageUri: pendingPhoto.uri,
+        storageId,
         fileName: pendingPhoto.fileName,
         fileSize: pendingPhoto.fileSize,
         mimeType: pendingPhoto.mimeType,
@@ -454,20 +477,22 @@ function SignInScreen() {
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {photos && photos.length > 0 ? (
             photos.map((photo) => {
-              console.log('Rendering photo:', photo.imageUri);
+              console.log('Rendering photo:', photo.imageUrl);
               return (
                 <View key={photo._id} style={styles.photoCard}>
-                  <Image
-                    source={{ uri: photo.imageUri }}
-                    style={styles.photoImage}
-                    resizeMode="cover"
-                    onError={(error) => {
-                      console.error('Image load error:', error.nativeEvent.error);
-                    }}
-                    onLoad={() => {
-                      console.log('Image loaded successfully:', photo.imageUri);
-                    }}
-                  />
+                  {photo.imageUrl && (
+                    <Image
+                      source={{ uri: photo.imageUrl }}
+                      style={styles.photoImage}
+                      resizeMode="cover"
+                      onError={(error) => {
+                        console.error('Image load error:', error.nativeEvent.error);
+                      }}
+                      onLoad={() => {
+                        console.log('Image loaded successfully:', photo.imageUrl);
+                      }}
+                    />
+                  )}
                   <View style={styles.photoInfo}>
                     <View style={styles.photoHeader}>
                       <Text style={styles.userName}>{photo.userName}</Text>

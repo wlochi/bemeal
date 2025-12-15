@@ -11,7 +11,7 @@ export default defineSchema({
 
   photos: defineTable({
     userId: v.id("users"),
-    imageUri: v.string(),
+    storageId: v.id("_storage"),
     fileName: v.string(),
     fileSize: v.optional(v.number()),
     mimeType: v.optional(v.string()),
